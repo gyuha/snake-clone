@@ -21,7 +21,8 @@
     "@serpent/game-core": "workspace:*",
     "@serpent/protocol": "workspace:*",
     "colyseus": "0.16.5",
-    "@serpent/api": "workspace:*"
+    "@serpent/api": "workspace:*",
+    "redis": "^4.7.0"
   },
   "devDependencies": {
     "@colyseus/testing": "^0.16.3",

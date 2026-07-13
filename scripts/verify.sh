@@ -7,4 +7,9 @@ pnpm lint
 pnpm typecheck
 pnpm -r test
 pnpm build
+pnpm check:web-budget
+pnpm check:assets
+pnpm check:dependencies
+pnpm infra:check:kubernetes
+pnpm test:e2e
 echo "[verify] all checks passed"

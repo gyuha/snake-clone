@@ -35,6 +35,8 @@ export type MessageName = (typeof MSG)[keyof typeof MSG];
 export interface InputMessage {
   /** 단조 증가 시퀀스 (uint) */
   seq: number;
+  /** 입력 생성 시각(ms). 서버 판정에는 사용하지 않고 지연 진단에만 쓴다. */
+  clientTime?: number;
   dirX: number;
   dirY: number;
   boost: boolean;
@@ -51,12 +53,15 @@ export interface InputMessage {
 export function validateInputMessage(raw: unknown): InputMessage | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const m = raw as Record<string, unknown>;
-  const { seq, dirX, dirY, boost } = m;
+  const { seq, clientTime, dirX, dirY, boost } = m;
   if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 0 || seq > 0xffffffff) return null;
   if (typeof dirX !== 'number' || !Number.isFinite(dirX)) return null;
   if (typeof dirY !== 'number' || !Number.isFinite(dirY)) return null;
   if (typeof boost !== 'boolean') return null;
-  return { seq, dirX, dirY, boost };
+  // 이전 JSON 클라이언트와의 짧은 호환 기간에는 누락을 허용하되, 유효하지 않은
+  // timestamp는 조용히 버려 서버의 시간 판단에 영향을 주지 않게 한다.
+  if (clientTime !== undefined && (typeof clientTime !== 'number' || !Number.isFinite(clientTime))) return null;
+  return { seq, ...(clientTime === undefined ? {} : { clientTime }), dirX, dirY, boost };
 }
 
 /** RTT/offset 추정용 핑 (PRD §9.5 Clock sync, 1~2Hz) */
@@ -172,8 +177,22 @@ export type EventMessage =
       type: 'death';
       tickId: number;
       snakeId: string;
-      cause: 'boundary' | 'body' | 'head';
+      cause: 'boundary' | 'body' | 'head' | 'disconnect';
       killerId?: string;
+    }
+  | {
+      /** body 충돌로 확정된 처치 — death와 같은 tick에 신뢰성 있게 전송한다. */
+      type: 'kill';
+      tickId: number;
+      killerId: string;
+      victimId: string;
+    }
+  | {
+      /** 운영/유지보수 안내. gameplay 판정과 분리된 신뢰성 UI 이벤트다. */
+      type: 'notice';
+      tickId: number;
+      level: 'info' | 'warning';
+      message: string;
     }
   | { type: 'spawn'; tickId: number; snakeId: string; x: number; y: number };
 
@@ -186,6 +205,8 @@ export interface LeaderboardMessage {
 
 /** 사망 후 결과 (PRD §11.4 result) */
 export interface ResultMessage {
+  /** 이번 생 단위의 안정 식별자 — 화면 추적과 결과 저장 멱등성에 공통 사용한다. */
+  matchId: string;
   rank: number;
   score: number;
   length: number;

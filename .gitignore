@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.log
+.env
 
 # forge volatile state (docs whitelisted)
 .forge/*
@@ -10,3 +11,4 @@ dist/
 !.forge/CONTEXT.md
 !.forge/config.json
 !.forge/branch/
+artifacts/

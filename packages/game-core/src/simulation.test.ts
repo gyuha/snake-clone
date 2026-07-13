@@ -1,11 +1,12 @@
 import { createGameConfig, type GameConfig } from '@serpent/config';
 import { describe, expect, it } from 'vitest';
 import { Simulation, bodyLengthForMass, sampleBodyPoints, wrapAngle } from './simulation';
+import { pointSegmentDistanceSq } from './spatial';
 
 function testConfig(overrides?: Parameters<typeof createGameConfig>[0]): GameConfig {
   const base = createGameConfig({
     arena: { width: 2000, height: 2000, boundary: 'lethal' },
-    pellets: { targetCount: 0, chunkSync: true, respawnBudgetPerTick: 0, baseValue: 1, radius: 6 },
+    pellets: { targetCount: 0, minPerCell: 0, chunkSync: true, respawnBudgetPerTick: 0, baseValue: 1, radius: 6 },
     ...overrides,
   });
   return base;
@@ -51,6 +52,18 @@ describe('이동', () => {
     sim.step();
     expect(s.angle).toBeCloseTo(0);
     expect(Number.isFinite(s.head.x)).toBe(true);
+  });
+
+  it('서버 감속 계수는 이동 속도에만 적용한다', () => {
+    const cfg = testConfig();
+    const sim = new Simulation(cfg, 1);
+    const s = sim.addSnake('a');
+    s.head = { x: 1000, y: 1000 };
+    s.angle = 0;
+    s.speedMultiplier = 0.5;
+    sim.setInput('a', { dirX: 1, dirY: 0, boost: false });
+    sim.step();
+    expect(s.head.x).toBeCloseTo(1000 + cfg.snake.baseSpeed * (cfg.simulation.fixedDeltaMs / 1000) * 0.5);
   });
 });
 
@@ -121,6 +134,55 @@ describe('섭취와 성장', () => {
   });
 });
 
+describe('펠릿 밀도', () => {
+  it('초기 배치는 설정된 셀별 최소 밀도를 먼저 채운다', () => {
+    const cfg = testConfig({
+      arena: { width: 1000, height: 1000, boundary: 'lethal' },
+      interest: { cellSize: 500, radius: 500, despawnRadius: 600, targetNearbySnakes: 10 },
+      pellets: { targetCount: 8, minPerCell: 2, chunkSync: true, respawnBudgetPerTick: 1, baseValue: 1, radius: 6 },
+    });
+    const sim = new Simulation(cfg, 1);
+    sim.seedPellets();
+    const counts = new Map<string, number>();
+    for (const pellet of sim.pellets.values()) {
+      const key = `${Math.floor(pellet.x / 500)}:${Math.floor(pellet.y / 500)}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    expect([...counts.values()]).toHaveLength(4);
+    expect([...counts.values()].every((count) => count >= 2)).toBe(true);
+  });
+});
+
+describe('생존 시간 점수', () => {
+  it('설정된 초당 점수를 고정 dt 누적으로 정확히 반영한다', () => {
+    const cfg = testConfig({ scoring: { survivalScorePerSecond: 3, survivalScoreCap: 300 } });
+    const sim = new Simulation(cfg, 1);
+    const s = sim.addSnake('a');
+    s.head = { x: 1000, y: 1000 };
+    s.angle = 0;
+    sim.setInput('a', { dirX: 1, dirY: 0, boost: false });
+
+    for (let tick = 0; tick < cfg.simulation.tickRate * 2; tick++) sim.step();
+
+    expect(s.score).toBe(6);
+    expect(s.survivalScoreCarry).toBeCloseTo(0);
+  });
+
+  it('생존 시간 점수는 설정된 cap 이후 더 이상 증가하지 않는다', () => {
+    const cfg = testConfig({ scoring: { survivalScorePerSecond: 10, survivalScoreCap: 3 } });
+    const sim = new Simulation(cfg, 1);
+    const s = sim.addSnake('a');
+    s.head = { x: 1000, y: 1000 };
+    s.angle = 0;
+    sim.setInput('a', { dirX: 1, dirY: 0, boost: false });
+
+    for (let tick = 0; tick < cfg.simulation.tickRate * 2; tick++) sim.step();
+
+    expect(s.survivalScoreEarned).toBe(3);
+    expect(s.score).toBe(3);
+  });
+});
+
 describe('충돌과 사망', () => {
   it('경계에 닿으면 즉사한다 (lethal boundary)', () => {
     const cfg = noProtection(testConfig());
@@ -133,6 +195,22 @@ describe('충돌과 사망', () => {
     expect(s.alive).toBe(false);
     expect(events.deaths).toHaveLength(1);
     expect(events.deaths[0]!.cause).toBe('boundary');
+  });
+
+  it('soft boundary에서는 죽지 않고 안전 영역으로 밀려난다', () => {
+    const cfg = noProtection(testConfig({ arena: { width: 2000, height: 2000, boundary: 'soft' } }));
+    const sim = new Simulation(cfg, 1);
+    const s = sim.addSnake('a');
+    s.head = { x: cfg.snake.headRadius + 1, y: 1000 };
+    s.angle = Math.PI;
+    sim.setInput('a', { dirX: -1, dirY: 0, boost: false });
+
+    const events = sim.step();
+
+    expect(s.alive).toBe(true);
+    expect(events.deaths).toHaveLength(0);
+    expect(s.head.x).toBe(cfg.snake.headRadius);
+    expect(s.head.y).toBe(1000);
   });
 
   it('상대 몸통에 머리가 닿으면 머리 소유자가 죽고 몸통 주인이 킬 보너스를 받는다', () => {
@@ -161,6 +239,33 @@ describe('충돌과 사망', () => {
     expect(death?.cause).toBe('body');
     expect(death?.killerId).toBe('b');
     expect(b.score).toBeGreaterThan(before);
+  });
+
+  it('동시 head-to-head에서는 양쪽이 죽고 어느 쪽도 처치 점수를 얻지 않는다', () => {
+    const cfg = noProtection(testConfig());
+    const sim = new Simulation(cfg, 1);
+    const a = sim.addSnake('a');
+    const b = sim.addSnake('b');
+    const dt = cfg.simulation.fixedDeltaMs / 1000;
+    const step = cfg.snake.baseSpeed * dt;
+
+    a.head = { x: 1000, y: 1000 };
+    a.angle = 0;
+    b.head = { x: 1000 + cfg.snake.headRadius * 2 + step - 1, y: 1000 };
+    b.angle = Math.PI;
+    sim.setInput('a', { dirX: 1, dirY: 0, boost: false });
+    sim.setInput('b', { dirX: -1, dirY: 0, boost: false });
+    const scores = { a: a.score, b: b.score };
+
+    const events = sim.step();
+
+    expect(a.alive).toBe(false);
+    expect(b.alive).toBe(false);
+    expect(events.deaths).toHaveLength(2);
+    expect(events.deaths.every((death) => death.cause === 'head')).toBe(true);
+    expect(events.deaths.every((death) => death.killerId === undefined)).toBe(true);
+    expect(a.score).toBe(scores.a);
+    expect(b.score).toBe(scores.b);
   });
 
   it('사망하면 질량 일부가 펠릿으로 전환된다 (잔해)', () => {
@@ -194,6 +299,30 @@ describe('충돌과 사망', () => {
     const events = sim.step();
     expect(a.alive).toBe(true);
     expect(events.deaths).toHaveLength(0);
+  });
+
+  it('새 스폰은 다른 뱀의 경로 세그먼트와 안전 거리 이상 떨어진다', () => {
+    const cfg = testConfig({ arena: { width: 6000, height: 6000, boundary: 'lethal' } });
+    const sim = new Simulation(cfg, 41);
+    const existing = sim.addSnake('existing');
+    existing.head = { x: 3000, y: 5000 };
+    existing.path = [{ x: 3000, y: 1000 }];
+    const spawned = sim.addSnake('new');
+    const safeDistance = cfg.snake.baseBodyLength * 2;
+
+    expect(pointSegmentDistanceSq(spawned.head, existing.head, existing.path[0]!)).toBeGreaterThanOrEqual(safeDistance ** 2);
+  });
+
+  it('재연결 grace가 끝나면 서버 강제 사망으로 잔해를 남긴다', () => {
+    const cfg = noProtection(testConfig());
+    const sim = new Simulation(cfg, 1);
+    const s = sim.addSnake('a');
+    s.mass = 60;
+    const death = sim.forceDeath('a');
+
+    expect(death).toMatchObject({ snakeId: 'a', cause: 'disconnect', tickId: 0 });
+    expect(s.alive).toBe(false);
+    expect(sim.pellets.size).toBeGreaterThan(0);
   });
 });
 

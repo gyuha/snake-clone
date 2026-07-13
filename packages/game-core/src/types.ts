@@ -11,7 +11,7 @@ export interface SnakeInput {
   boost: boolean;
 }
 
-export type DeathCause = 'boundary' | 'body' | 'head';
+export type DeathCause = 'boundary' | 'body' | 'head' | 'disconnect';
 
 export interface SnakeState {
   id: string;
@@ -21,10 +21,18 @@ export interface SnakeState {
   angle: number;
   mass: number;
   score: number;
+  /** 생존 점수의 소수 누적분. 점수는 정수만 외부에 노출한다. */
+  survivalScoreCarry: number;
+  /** 이미 반영한 생존 시간 점수. 펠릿/킬 점수와 분리해 cap을 적용한다. */
+  survivalScoreEarned: number;
   boosting: boolean;
+  /** 서버가 단절 grace 동안 적용하는 감속 계수 (기본 1). */
+  speedMultiplier: number;
   /** 머리 뒤로 이어지는 경로 키포인트 (index 0이 머리에 가장 가까움) */
   path: Vec2[];
   spawnedAtTick: number;
+  /** 같은 tick에 여러 스폰이 발생해도 생존 시간 타이브레이크를 안정화하는 순번. */
+  spawnOrder: number;
   /** 스폰 보호 종료 틱 (이 틱 전에는 충돌 사망 없음, 부스트 불가) */
   protectedUntilTick: number;
 }

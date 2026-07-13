@@ -1,0 +1,40 @@
+name: serpent-arena
+
+# 개발용 상태 서비스. 애플리케이션 프로세스는 scripts/run-local.sh가 호스트에서
+# 실행한다. 운영 비밀은 이 파일에 넣지 않고 .env 또는 비밀 관리 도구에서 주입한다.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-serpent}
+      POSTGRES_USER: ${POSTGRES_USER:-serpent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-serpent_dev_only}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:

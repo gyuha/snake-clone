@@ -2,6 +2,7 @@ import type { GameConfig } from '@serpent/config';
 import { bodyLengthForMass, stepSnakeMovement } from './movement';
 import { Rng } from './rng';
 import { BodyCollisionIndex, SpatialHashGrid, pointSegmentDistanceSq } from './spatial';
+import { cellKey } from './spatial';
 import type {
   DeathEvent,
   EatEvent,
@@ -76,12 +77,15 @@ export class Simulation {
   readonly snakes = new Map<string, SnakeState>();
   readonly pellets = new Map<number, PelletState>();
   private nextPelletId = 1;
+  private nextSpawnOrder = 1;
   private readonly inputs = new Map<string, InternalInput>();
 
   /** 몸통 캡슐 세그먼트 인덱스 — 증분 갱신 (PRD §9.8.7) */
   private readonly bodyIndex: BodyCollisionIndex;
   /** 정적 펠릿 인덱스 — 스폰/섭취 시에만 갱신 */
   private readonly pelletGrid: SpatialHashGrid<number>;
+  /** 셀 최소 밀도 보장을 위한 펠릿 수. 삭제/생성에만 갱신한다. */
+  private readonly pelletCellCounts = new Map<string, number>();
 
   constructor(config: GameConfig, seed: number) {
     this.config = config;
@@ -100,20 +104,57 @@ export class Simulation {
 
   private spawnPellet(x?: number, y?: number, value?: number): PelletState {
     const { arena, pellets } = this.config;
+    const sparseCell = x === undefined || y === undefined ? this.sparsestPelletCell() : null;
+    const cellSize = this.config.interest.cellSize;
+    const spawnX = sparseCell
+      ? this.rng.range(Math.max(pellets.radius, sparseCell.cx * cellSize + pellets.radius), Math.min(arena.width - pellets.radius, (sparseCell.cx + 1) * cellSize - pellets.radius))
+      : x ?? this.rng.range(pellets.radius, arena.width - pellets.radius);
+    const spawnY = sparseCell
+      ? this.rng.range(Math.max(pellets.radius, sparseCell.cy * cellSize + pellets.radius), Math.min(arena.height - pellets.radius, (sparseCell.cy + 1) * cellSize - pellets.radius))
+      : y ?? this.rng.range(pellets.radius, arena.height - pellets.radius);
     const pellet: PelletState = {
       id: this.nextPelletId++,
-      x: x ?? this.rng.range(pellets.radius, arena.width - pellets.radius),
-      y: y ?? this.rng.range(pellets.radius, arena.height - pellets.radius),
+      x: spawnX,
+      y: spawnY,
       value: value ?? pellets.baseValue,
     };
     this.pellets.set(pellet.id, pellet);
     this.pelletGrid.insertPoint(pellet.id, pellet.x, pellet.y);
+    this.adjustPelletCellCount(pellet.x, pellet.y, 1);
     return pellet;
   }
 
   private removePellet(id: number): void {
+    const pellet = this.pellets.get(id);
+    if (!pellet) return;
     this.pellets.delete(id);
     this.pelletGrid.remove(id);
+    this.adjustPelletCellCount(pellet.x, pellet.y, -1);
+  }
+
+  /** 최소 밀도보다 적은 셀이 있으면 그중 가장 비어 있는 셀을 고른다. */
+  private sparsestPelletCell(): { cx: number; cy: number } | null {
+    const { arena, interest, pellets } = this.config;
+    const minPerCell = pellets.minPerCell ?? 0;
+    if (minPerCell === 0) return null;
+    let best: { cx: number; cy: number; count: number } | null = null;
+    const cols = Math.ceil(arena.width / interest.cellSize);
+    const rows = Math.ceil(arena.height / interest.cellSize);
+    for (let cx = 0; cx < cols; cx++) {
+      for (let cy = 0; cy < rows; cy++) {
+        const count = this.pelletCellCounts.get(cellKey(cx, cy)) ?? 0;
+        if (count < minPerCell && (!best || count < best.count)) best = { cx, cy, count };
+      }
+    }
+    return best;
+  }
+
+  private adjustPelletCellCount(x: number, y: number, delta: number): void {
+    const { cx, cy } = { cx: Math.floor(x / this.config.interest.cellSize), cy: Math.floor(y / this.config.interest.cellSize) };
+    const key = cellKey(cx, cy);
+    const next = (this.pelletCellCounts.get(key) ?? 0) + delta;
+    if (next <= 0) this.pelletCellCounts.delete(key);
+    else this.pelletCellCounts.set(key, next);
   }
 
   /** 지정 위치에 펠릿 배치 (테스트/운영 도구용 — 인덱스 일관성 보장) */
@@ -140,10 +181,19 @@ export class Simulation {
       let safe = true;
       for (const other of this.snakes.values()) {
         if (!other.alive) continue;
-        if (Math.hypot(other.head.x - candidate.x, other.head.y - candidate.y) < safeDistance) {
-          safe = false;
-          break;
+        // 머리뿐 아니라 목과 전체 경로의 캡슐 세그먼트에서 떨어져야 한다.
+        // 새 스폰은 아직 bodyIndex에 등록되지 않은 경로도 있으므로 여기서는
+        // 원본 키포인트를 직접 검사한다 (PRD §5.6 Spawn overlap).
+        const body = [other.head, ...other.path];
+        for (let i = 0; i < body.length; i++) {
+          const a = body[i]!;
+          const b = body[i + 1] ?? a;
+          if (pointSegmentDistanceSq(candidate, a, b) < safeDistance * safeDistance) {
+            safe = false;
+            break;
+          }
         }
+        if (!safe) break;
       }
       if (safe) {
         pos = candidate;
@@ -159,9 +209,13 @@ export class Simulation {
       angle,
       mass: snake.initialMass,
       score: 0,
+      survivalScoreCarry: 0,
+      survivalScoreEarned: 0,
       boosting: false,
+      speedMultiplier: 1,
       path: [{ x: pos.x - Math.cos(angle), y: pos.y - Math.sin(angle) }],
       spawnedAtTick: this.tickId,
+      spawnOrder: this.nextSpawnOrder++,
       protectedUntilTick: this.tickId + protectionTicks,
     };
     this.snakes.set(id, state);
@@ -172,6 +226,17 @@ export class Simulation {
     this.snakes.delete(id);
     this.inputs.delete(id);
     this.bodyIndex.removeSnake(id);
+  }
+
+  /** 재연결 grace가 끝난 연결을 서버 권위로 사망 처리한다 (PRD §5.5). */
+  forceDeath(id: string, cause: DeathEvent['cause'] = 'disconnect'): DeathEvent | null {
+    const s = this.snakes.get(id);
+    if (!s?.alive) return null;
+    s.alive = false;
+    s.boosting = false;
+    this.bodyIndex.removeSnake(s.id);
+    this.scatterRemains(s);
+    return { tickId: this.tickId, snakeId: id, cause };
   }
 
   /** 입력 적용 — 최신 입력 우선 (PRD §9.8.2). 비정상 방향은 무시하고 이전 방향 유지. */
@@ -193,6 +258,20 @@ export class Simulation {
       if (!s.alive) continue;
       const protectedNow = this.tickId < s.protectedUntilTick;
       stepSnakeMovement(s, this.inputs.get(s.id), this.config, !protectedNow);
+      // 생존 점수는 고정 dt에서 누적해 정수로만 반영한다. 부동소수 오차로
+      // 프레임별 점수가 달라지지 않도록 carry를 보존한다 (PRD §5.4).
+      if (s.survivalScoreEarned < this.config.scoring.survivalScoreCap) {
+        s.survivalScoreCarry += this.config.scoring.survivalScorePerSecond * (this.config.simulation.fixedDeltaMs / 1000);
+        const earned = Math.min(
+          Math.floor(s.survivalScoreCarry + 1e-9),
+          this.config.scoring.survivalScoreCap - s.survivalScoreEarned,
+        );
+        if (earned > 0) {
+          s.score += earned;
+          s.survivalScoreEarned += earned;
+          s.survivalScoreCarry -= earned;
+        }
+      }
       this.bodyIndex.syncSnake(s.id, s.path);
     }
 
@@ -230,6 +309,12 @@ export class Simulation {
         doomed.set(s.id, { tickId: this.tickId, snakeId: s.id, cause: 'boundary' });
         continue;
       }
+      if (arena.boundary === 'soft') {
+        // 초보 모드의 소프트 월: 경계 밖으로 나간 머리를 즉시 안전 영역으로
+        // 밀어 넣는다. 좌표를 신뢰하는 클라이언트는 없으므로 서버 위치만 보정한다.
+        s.head.x = Math.min(arena.width - snakeCfg.headRadius, Math.max(snakeCfg.headRadius, s.head.x));
+        s.head.y = Math.min(arena.height - snakeCfg.headRadius, Math.max(snakeCfg.headRadius, s.head.y));
+      }
       if (protectedNow) continue;
 
       // 머리-머리: 동일 틱 양쪽 사망 (PRD §5.5) — 머리 수는 적으므로 직접 비교
@@ -237,7 +322,9 @@ export class Simulation {
         if (other.id === s.id) continue;
         const headDist = Math.hypot(other.head.x - s.head.x, other.head.y - s.head.y);
         if (headDist <= snakeCfg.headRadius * 2 && this.tickId >= other.protectedUntilTick) {
-          doomed.set(s.id, { tickId: this.tickId, snakeId: s.id, cause: 'head', killerId: other.id });
+          // Head-to-head collisions are simultaneous: both snakes die without a
+          // killer credit, so iteration order cannot decide a winner.
+          doomed.set(s.id, { tickId: this.tickId, snakeId: s.id, cause: 'head' });
           break;
         }
       }

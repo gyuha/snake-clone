@@ -65,12 +65,21 @@ export interface SnakeConfig {
 
 export interface PelletsConfig {
   targetCount: number;
+  /** interest grid 셀마다 유지할 최소 일반 펠릿 수 (PRD §5.6) */
+  minPerCell?: number;
   chunkSync: boolean;
   respawnBudgetPerTick: number;
   /** 일반 펠릿 1개의 질량 값 */
   baseValue: number;
   /** 펠릿 반경 (world units) — 획득 판정은 headRadius + radius */
   radius: number;
+}
+
+export interface ScoringConfig {
+  /** 생존 1초당 획득하는 정수 점수 (PRD §5.4 시간 점수) */
+  survivalScorePerSecond: number;
+  /** 잠수 플레이가 우세해지지 않도록 생존 점수에 적용하는 경기당 상한 */
+  survivalScoreCap: number;
 }
 
 export interface GameConfig {
@@ -83,6 +92,7 @@ export interface GameConfig {
   interest: InterestConfig;
   snake: SnakeConfig;
   pellets: PelletsConfig;
+  scoring: ScoringConfig;
   reconnect: { graceMs: number };
   leaderboard: { size: number; updateHz: number };
 }
@@ -137,10 +147,15 @@ export const defaultGameConfig: GameConfig = {
   },
   pellets: {
     targetCount: 1200,
+    minPerCell: 2,
     chunkSync: true,
     respawnBudgetPerTick: 30,
     baseValue: 1,
     radius: 6,
+  },
+  scoring: {
+    survivalScorePerSecond: 1,
+    survivalScoreCap: 300,
   },
   reconnect: {
     graceMs: 10000,
@@ -163,7 +178,43 @@ export function createGameConfig(overrides: Partial<GameConfig> = {}): GameConfi
     interest: { ...defaultGameConfig.interest, ...overrides.interest },
     snake: { ...defaultGameConfig.snake, ...overrides.snake },
     pellets: { ...defaultGameConfig.pellets, ...overrides.pellets },
+    scoring: { ...defaultGameConfig.scoring, ...overrides.scoring },
     reconnect: { ...defaultGameConfig.reconnect, ...overrides.reconnect },
     leaderboard: { ...defaultGameConfig.leaderboard, ...overrides.leaderboard },
   };
+}
+
+/**
+ * 운영 설정을 활성화하기 전의 최소 안전성 검사. 게임 루프 안에서는 호출하지 않고
+ * API/배포 단계에서만 사용한다. 잘못된 tick·AOI·속도 조합의 배포를 막는다.
+ */
+export function validateGameConfig(config: GameConfig): { ok: true } | { ok: false; error: string } {
+  const positive = (value: number) => Number.isFinite(value) && value > 0;
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(config.version)) return { ok: false, error: 'invalid version' };
+  if (!positive(config.arena.width) || !positive(config.arena.height)) return { ok: false, error: 'invalid arena' };
+  if (!Number.isInteger(config.room.maxPlayers) || config.room.maxPlayers < 1 || config.room.maxBots < 0) {
+    return { ok: false, error: 'invalid room capacity' };
+  }
+  if (!positive(config.simulation.tickRate) || !positive(config.simulation.snapshotRate) ||
+    config.simulation.snapshotRate > config.simulation.tickRate ||
+    Math.abs(config.simulation.fixedDeltaMs - 1000 / config.simulation.tickRate) > 0.001) {
+    return { ok: false, error: 'invalid simulation rates' };
+  }
+  if (!positive(config.interest.cellSize) || !positive(config.interest.radius) ||
+    config.interest.despawnRadius < config.interest.radius) {
+    return { ok: false, error: 'invalid interest range' };
+  }
+  if (!positive(config.snake.baseSpeed) || config.snake.boostSpeed < config.snake.baseSpeed ||
+    !positive(config.snake.maxTurnRate) || config.snake.boostMassCostPerSecond < 0) {
+    return { ok: false, error: 'invalid snake balance' };
+  }
+  if (!positive(config.pellets.targetCount) || !Number.isInteger(config.pellets.minPerCell ?? 0) || (config.pellets.minPerCell ?? 0) < 0 || !positive(config.pellets.respawnBudgetPerTick) ||
+    !positive(config.pellets.baseValue) || !positive(config.pellets.radius)) {
+    return { ok: false, error: 'invalid pellets' };
+  }
+  if (!Number.isFinite(config.scoring.survivalScorePerSecond) || config.scoring.survivalScorePerSecond < 0 ||
+    !Number.isInteger(config.scoring.survivalScoreCap) || config.scoring.survivalScoreCap < 0) {
+    return { ok: false, error: 'invalid scoring' };
+  }
+  return { ok: true };
 }

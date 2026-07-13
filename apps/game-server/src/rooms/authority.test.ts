@@ -1,5 +1,6 @@
 import type { ColyseusTestServer } from '@colyseus/testing';
 import type { SnapshotMessage, WelcomeMessage } from '@serpent/protocol';
+import { INVALID_INPUT_DISCONNECT_AFTER } from './ArenaRoom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { bootArenaServer, collectMessages, until } from './testServer';
 
@@ -105,6 +106,22 @@ describe('서버 권위 (M2)', () => {
     expect(Math.max(...acks)).toBe(11);
   }, 20_000);
 
+  it('지나치게 미래의 seq는 폐기되어 이후 정상 입력을 막지 않는다', async () => {
+    const room = await server.createRoom('arena', { config: cleanConfig });
+    const client = await server.connectTo(room);
+    const msgs = collectMessages(client);
+    await until(() => msgs.snapshot.length >= 1);
+
+    client.send('input', { seq: 1, dirX: 1, dirY: 0, boost: false });
+    await until(() => latestSnapshot(msgs)?.lastAckInputSeq === 1);
+    client.send('input', { seq: 1_000_000, dirX: 0, dirY: 1, boost: false });
+    client.send('input', { seq: 2, dirX: -1, dirY: 0, boost: false });
+
+    await until(() => latestSnapshot(msgs)?.lastAckInputSeq === 2);
+    const acks = (msgs.snapshot as SnapshotMessage[]).map((s) => s.lastAckInputSeq);
+    expect(acks).not.toContain(1_000_000);
+  }, 20_000);
+
   it('초당 빈도 제한을 넘는 입력 폭주는 드롭된다 (PRD §14.2)', async () => {
     const room = await server.createRoom('arena', { config: cleanConfig });
     const client = await server.connectTo(room);
@@ -121,5 +138,21 @@ describe('서버 권위 (M2)', () => {
     const finalAck = latestSnapshot(msgs)!.lastAckInputSeq;
     expect(finalAck).toBeGreaterThanOrEqual(1);
     expect(finalAck).toBeLessThanOrEqual(90); // cap 30 × 최대 2~3윈도 << 200
+  }, 20_000);
+
+  it('반복 malformed 입력은 연결을 종료한다 (PRD §14.2)', async () => {
+    const room = await server.createRoom('arena', { config: cleanConfig });
+    const client = await server.connectTo(room);
+    const msgs = collectMessages(client);
+    await until(() => msgs.snapshot.length >= 1);
+
+    const left = new Promise<{ code: number; reason?: string }>((resolve) => {
+      client.onLeave((code, reason) => resolve({ code, reason }));
+    });
+    for (let seq = 1; seq <= INVALID_INPUT_DISCONNECT_AFTER; seq++) {
+      client.send('input', { seq, dirX: NaN, dirY: 0, boost: false });
+    }
+
+    await expect(left).resolves.toMatchObject({ code: 4000, reason: 'too many invalid input messages' });
   }, 20_000);
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { keysToDirection, resolveInputDirection } from './input';
+import { gamepadInput, keysToDirection, resolveInputDirection } from './input';
 
 const noKeys = { up: false, down: false, left: false, right: false };
 
@@ -51,5 +51,17 @@ describe('resolveInputDirection — 마지막 활성 장치 규칙 (PRD §6.1)',
       lastDevice: 'pointer',
     });
     expect(r.dir).toBeNull();
+  });
+});
+
+describe('gamepadInput (PRD §7.3 Could)', () => {
+  const pad = (axes: number[], pressed: number[] = []) => ({
+    connected: true, axes, buttons: Array.from({ length: 8 }, (_, index) => ({ pressed: pressed.includes(index), value: pressed.includes(index) ? 1 : 0 })),
+  }) as unknown as Gamepad;
+
+  it('왼쪽 스틱 데드존을 적용하고 A/RT를 부스트로 매핑한다', () => {
+    expect(gamepadInput([pad([0.1, 0.1])])).toEqual({ dir: null, boost: false });
+    expect(gamepadInput([pad([0.7, -0.4], [0])])).toEqual({ dir: { x: 0.7, y: -0.4 }, boost: true });
+    expect(gamepadInput([pad([-1, 0], [7])]).boost).toBe(true);
   });
 });

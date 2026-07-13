@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: game-server
+  namespace: serpent-arena
+  labels: { app.kubernetes.io/name: serpent-game-server }
+spec:
+  selector: { app.kubernetes.io/name: serpent-game-server }
+  ports:
+    - name: ws
+      port: 2567
+      targetPort: ws
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: game-server
+  namespace: serpent-arena
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector: { matchLabels: { app.kubernetes.io/name: serpent-game-server } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: serpent-game-server } }
+    spec:
+      # SIGTERM 시 Room drain을 시작하고, readiness가 503이 되어 신규 WSS 배정을 중지한다.
+      terminationGracePeriodSeconds: 120
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: { matchLabels: { app.kubernetes.io/name: serpent-game-server } }
+      containers:
+        - name: game-server
+          image: ghcr.io/example/serpent-game-server:immutable-tag
+          imagePullPolicy: IfNotPresent
+          ports: [{ name: ws, containerPort: 2567 }]
+          env:
+            - name: SERPENT_GRACEFUL_SHUTDOWN
+              value: "1"
+            - name: SERPENT_TOKEN_SECRET
+              valueFrom: { secretKeyRef: { name: serpent-runtime, key: token-secret } }
+            - name: SERPENT_INTERNAL_SECRET
+              valueFrom: { secretKeyRef: { name: serpent-runtime, key: internal-secret } }
+            - name: SERPENT_ADMIN_SECRET
+              valueFrom: { secretKeyRef: { name: serpent-runtime, key: admin-secret } }
+            - name: SERPENT_API_URL
+              value: http://api:8080
+            - name: REDIS_URL
+              valueFrom: { secretKeyRef: { name: serpent-runtime, key: redis-url } }
+            - name: SERPENT_PUBLIC_GAME_ENDPOINT
+              valueFrom: { secretKeyRef: { name: serpent-runtime, key: game-ws-endpoint } }
+            - name: SERPENT_INSTANCE_ID
+              valueFrom: { fieldRef: { fieldPath: metadata.uid } }
+            - name: SERPENT_CONFIG_URL
+              value: http://api:8080/v1/config/client
+            - name: SERPENT_CONFIG_ROLLOUT_KEY
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          readinessProbe: { httpGet: { path: /healthz, port: ws }, initialDelaySeconds: 3, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: ws }, initialDelaySeconds: 10, periodSeconds: 10 }
+          resources:
+            requests: { cpu: "1", memory: 1Gi }
+            limits: { cpu: "4", memory: 4Gi }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: game-server, namespace: serpent-arena }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: game-server }
+  minReplicas: 2
+  maxReplicas: 30
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } }
+    # Prometheus Adapter가 /ops/metrics를 이 Pod metric으로 변환해야 한다.
+    - type: Pods
+      pods: { metric: { name: serpent_game_active_rooms }, target: { type: AverageValue, averageValue: "8" } }
+    - type: Pods
+      pods: { metric: { name: serpent_event_loop_lag_p99_milliseconds }, target: { type: AverageValue, averageValue: "45" } }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: game-server, namespace: serpent-arena }
+spec:
+  minAvailable: 1
+  selector: { matchLabels: { app.kubernetes.io/name: serpent-game-server } }

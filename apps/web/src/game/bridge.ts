@@ -9,7 +9,11 @@ export interface GameBridge {
   onLeaderboard(lb: LeaderboardMessage): void;
   onResult(result: ResultMessage | null): void;
   onStatus(status: string): void;
-  onHud(hud: { score: number; length: number; kills: number; rttMs: number | null }): void;
+  onHud(hud: { score: number; length: number; kills: number; rttMs: number | null; snapshotStale: boolean }): void;
+  onRoomJoined?(): void;
+  /** 실제 gameplay 입력이 처음 서버로 전송된 시점 (PRD §16.1 funnel). */
+  onFirstInput?(): void;
+  onConfigMismatch?(serverVersion: string): void;
 
   /** React → Phaser (씬이 채운다) */
   requestRespawn?: () => void;

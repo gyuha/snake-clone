@@ -7,6 +7,7 @@ export interface MovementState {
   angle: number;
   mass: number;
   boosting: boolean;
+  speedMultiplier?: number;
   path: Vec2[];
 }
 
@@ -59,7 +60,7 @@ export function stepSnakeMovement(
     );
   }
 
-  const speed = s.boosting ? snakeCfg.boostSpeed : snakeCfg.baseSpeed;
+  const speed = (s.boosting ? snakeCfg.boostSpeed : snakeCfg.baseSpeed) * Math.max(0, Math.min(1, s.speedMultiplier ?? 1));
   const prevHead = { ...s.head };
   s.head = {
     x: s.head.x + Math.cos(s.angle) * speed * dt,

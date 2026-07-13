@@ -7,7 +7,19 @@ export interface DirectionKeys {
   right: boolean;
 }
 
-export type InputDevice = 'pointer' | 'keys';
+export type InputDevice = 'pointer' | 'keys' | 'gamepad';
+
+/** Gamepad API의 왼쪽 스틱과 A/RT 부스트를 작은 테스트 가능 형태로 정규화한다. */
+export function gamepadInput(gamepads: readonly (Pick<Gamepad, 'axes' | 'buttons' | 'connected'> | null | undefined)[], deadZone = 0.18): { dir: Vec2 | null; boost: boolean } {
+  const pad = gamepads.find((candidate): candidate is Pick<Gamepad, 'axes' | 'buttons' | 'connected'> => Boolean(candidate?.connected));
+  if (!pad) return { dir: null, boost: false };
+  const x = pad.axes[0] ?? 0;
+  const y = pad.axes[1] ?? 0;
+  const dir = Math.hypot(x, y) >= deadZone ? { x, y } : null;
+  // 표준 매핑: A(0) 또는 RT(7). vendor별 버튼 배열 길이 차이는 안전하게 폴백한다.
+  const boost = Boolean(pad.buttons[0]?.pressed || pad.buttons[7]?.pressed || (pad.buttons[7]?.value ?? 0) > 0.5);
+  return { dir, boost };
+}
 
 /** WASD/방향키 조합 → 방향 벡터 (아무 키도 없으면 null) */
 export function keysToDirection(keys: DirectionKeys): Vec2 | null {

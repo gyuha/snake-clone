@@ -67,9 +67,35 @@ describe('매치 티켓 (FR-MATCH-02)', () => {
     const res = await api.app.inject({ method: 'POST', url: '/v1/matches/tickets', payload: {} });
     expect(res.statusCode).toBe(401);
   });
+
+  it('토큰 입장은 클라이언트가 보낸 닉네임·스킨 대신 서명된 프로필을 쓴다', async () => {
+    const room = await server.createRoom('arena', { config: quietConfig });
+    const { ticket } = await issueTicket();
+    const client = await server.connectTo(room, { joinToken: ticket.joinToken, nickname: '위조이름', skinId: 7 });
+    const messages = collectMessages(client);
+    await until(() => messages.welcome.length >= 1);
+    const welcome = messages.welcome[0]! as WelcomeMessage;
+    const player = welcome.players.find((entry) => entry.id === client.sessionId);
+    expect(player).toMatchObject({ name: `guest-${client.sessionId.slice(0, 4)}`, skinId: 0 });
+  });
+
+  it('서명된 미션 보상 스킨도 모든 클라이언트에 권위적으로 표시한다', async () => {
+    const room = await server.createRoom('arena', { config: quietConfig });
+    const joinToken = createToken({ sub: 'reward-user', type: 'join', exp: Date.now() + 10_000, roomName: 'arena', nonce: `reward-${Date.now()}`, nickname: '주간보상', skinId: 9 }, 'mm-secret');
+    const client = await server.connectTo(room, { joinToken, nickname: '위조', skinId: 0 });
+    const messages = collectMessages(client);
+    await until(() => messages.welcome.length >= 1);
+    const welcome = messages.welcome[0]! as WelcomeMessage;
+    expect(welcome.players.find((entry) => entry.id === client.sessionId)).toMatchObject({ name: '주간보상', skinId: 9 });
+  });
 });
 
 describe('game-server joinToken 검증 (PRD §14.2)', () => {
+  it('호환되지 않는 protocolVersion은 명시적으로 거부한다 (PRD §11.5)', async () => {
+    const { ticket } = await issueTicket();
+    const room = await server.createRoom('arena', { config: quietConfig });
+    await expect(server.connectTo(room, { joinToken: ticket.joinToken, protocolVersion: 999 })).rejects.toThrow(/protocol_version_mismatch/);
+  });
   it('유효 토큰은 입장, 재사용·위조·만료·무토큰은 거부된다', async () => {
     const room = await server.createRoom('arena', { config: quietConfig });
     const { ticket } = await issueTicket();
@@ -137,10 +163,17 @@ describe('재연결 (FR-GAME-04 / PRD §5.5)', () => {
     const m1 = collectMessages(c1);
     await until(() => m1.welcome.length >= 1);
     const sessionId = c1.sessionId;
+    const { ticket: observerTicket } = await issueTicket();
+    const observer = await server.connectTo(room as never, { joinToken: observerTicket.joinToken });
+    const observerMessages = collectMessages(observer);
+    await until(() => observerMessages.welcome.length >= 1);
 
     await c1.leave(false);
     await until(() => !room.hasSnake(sessionId), 5_000);
     expect(room.hasSnake(sessionId)).toBe(false);
+    await until(() => (observerMessages.event as { type: string; snakeId?: string; cause?: string }[]).some(
+      (event) => event.type === 'death' && event.snakeId === sessionId && event.cause === 'disconnect',
+    ), 5_000);
   }, 25_000);
 });
 

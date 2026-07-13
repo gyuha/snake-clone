@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
  * HMAC 서명 토큰 (PRD §11.1, §14.2).
@@ -27,6 +27,11 @@ function sign(data: string, secret: string): string {
 export function createToken(payload: TokenPayload, secret: string): string {
   const body = b64url(Buffer.from(JSON.stringify(payload), 'utf8'));
   return `${body}.${sign(body, secret)}`;
+}
+
+/** 저장소에는 원본 bearer token 대신 단방향 지문만 보관한다. */
+export function tokenFingerprint(token: string): string {
+  return createHash('sha256').update(token).digest('base64url');
 }
 
 /**

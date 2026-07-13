@@ -1,5 +1,6 @@
 import type { ColyseusTestServer } from '@colyseus/testing';
-import type { EventMessage, SnapshotMessage, WelcomeMessage } from '@serpent/protocol';
+import type { EventMessage, ResultMessage, SnapshotMessage, WelcomeMessage } from '@serpent/protocol';
+import type { ArenaRoom } from './ArenaRoom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { bootArenaServer, collectMessages, until } from './testServer';
 
@@ -50,10 +51,24 @@ describe('ArenaRoom 통합 (M2)', () => {
     const m1 = collectMessages(c1);
     const m2 = collectMessages(c2);
 
-    // c1을 오른쪽 경계로 직진시킨다 (1200 아레나 → 수 초 내 사망)
+    // 무작위 스폰된 c2 몸통을 향하지 않는 가장 가까운 경계로 c1을 보낸다.
+    // 이 선택이 없으면 간헐적으로 body 충돌이 경계보다 먼저 발생할 수 있다.
+    await until(() => m2.welcome.length >= 1, 5_000);
+    const positions = (m2.welcome[0] as WelcomeMessage).players;
+    const self = positions.find((player) => player.id === c1.sessionId)!;
+    const other = positions.find((player) => player.id === c2.sessionId)!;
+    const directions = [
+      { dirX: -1, dirY: 0, distance: self.x },
+      { dirX: 1, dirY: 0, distance: 1200 - self.x },
+      { dirX: 0, dirY: -1, distance: self.y },
+      { dirX: 0, dirY: 1, distance: 1200 - self.y },
+    ].map((candidate) => ({ ...candidate, towardOther: candidate.dirX * (other.x - self.x) + candidate.dirY * (other.y - self.y) }))
+      .filter((candidate) => candidate.towardOther <= 0)
+      .sort((a, b) => a.distance - b.distance);
+    const direction = directions[0]!;
     let seq = 0;
     const driver = setInterval(() => {
-      c1.send('input', { seq: ++seq, dirX: 1, dirY: 0, boost: false });
+      c1.send('input', { seq: ++seq, dirX: direction.dirX, dirY: direction.dirY, boost: false });
     }, 50);
 
     try {
@@ -70,6 +85,8 @@ describe('ArenaRoom 통합 (M2)', () => {
       }
       // 본인에게는 result가 간다
       await until(() => m1.result.length >= 1, 5_000);
+      const result = m1.result[0] as ResultMessage;
+      expect(result.matchId).toContain(`:${c1.sessionId}:`);
     } finally {
       clearInterval(driver);
     }
@@ -88,6 +105,19 @@ describe('ArenaRoom 통합 (M2)', () => {
     expect(pong.nonce).toBe(77);
     expect(pong.clientTime).toBe(12345);
     expect(pong.serverTime).toBeGreaterThanOrEqual(before);
+  }, 20_000);
+
+  it('drain 시작은 현재 플레이어에게 신뢰성 유지보수 notice를 보낸다', async () => {
+    const room = await server.createRoom('arena', { config: smallConfig });
+    const client = await server.connectTo(room);
+    const messages = collectMessages(client);
+    await until(() => messages.welcome.length >= 1);
+
+    await (room as unknown as ArenaRoom).drain();
+
+    await until(() => (messages.event as EventMessage[]).some((event) => event.type === 'notice'), 5_000);
+    const notice = (messages.event as EventMessage[]).find((event) => event.type === 'notice');
+    expect(notice).toMatchObject({ type: 'notice', level: 'warning' });
   }, 20_000);
 
   it('resync를 보내면 full baseline(welcome)이 재전송된다 (PRD §11.4)', async () => {

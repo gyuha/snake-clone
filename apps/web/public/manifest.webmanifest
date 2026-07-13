@@ -1,0 +1,13 @@
+{
+  "name": "Serpent Arena",
+  "short_name": "Serpent",
+  "description": "서버 권위형 실시간 스네이크 아레나",
+  "lang": "ko",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101418",
+  "theme_color": "#101418",
+  "icons": [
+    { "src": "/icons/serpent.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

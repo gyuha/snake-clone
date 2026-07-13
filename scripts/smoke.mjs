@@ -1,7 +1,8 @@
 /**
  * 통합 스모크 (loop.md C10): api + game-server 기동 →
  * 게스트 생성 → 매치 티켓 → joinToken 입장 → welcome/전진 snapshot →
- * 경계 사망 → result 수신 → api 전적 저장 확인 → exit 0.
+ * 운영 drain(기존 경기 유지·동일 Room 신규 입장 거부) → 경계 사망 →
+ * result 수신 → api 전적 저장 확인 → exit 0.
  */
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -9,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 const GAME_PORT = process.env.SMOKE_PORT ?? '2599';
 const API_PORT = process.env.SMOKE_API_PORT ?? '8599';
 const API = `http://127.0.0.1:${API_PORT}`;
+const ADMIN_SECRET = 'smoke-admin-secret';
 const TIMEOUT_MS = 90_000;
 const deadline = Date.now() + TIMEOUT_MS;
 
@@ -52,6 +54,7 @@ spawnService('game', ['--filter', '@serpent/game-server', 'start'], {
   PORT: GAME_PORT,
   SERPENT_REQUIRE_JOIN_TOKEN: '1',
   SERPENT_API_URL: API,
+  SERPENT_ADMIN_SECRET: ADMIN_SECRET,
 });
 
 await waitFor(() => output.includes('[api] listening'), 'api boot');
@@ -82,10 +85,11 @@ try {
   let welcome = null;
   const snapshots = [];
   let result = null;
+  const events = [];
   room.onMessage('welcome', (m) => (welcome = m));
   room.onMessage('snapshot', (m) => snapshots.push(m));
   room.onMessage('result', (m) => (result = m));
-  room.onMessage('event', () => {});
+  room.onMessage('event', (event) => events.push(event));
   room.onMessage('pong', () => {});
   room.onMessage('leaderboard', () => {});
 
@@ -100,6 +104,25 @@ try {
   const failed = checks.filter(([ok]) => !ok);
   if (failed.length > 0) throw new Error(`checks failed: ${failed.map(([, n]) => n).join(', ')}`);
   console.log(`[smoke] welcome/snapshot ok (pellets ${welcome.pellets.length})`);
+
+  // ── 배포 drain 리허설: 현재 경기는 유지, 동일 Room 신규 입장은 차단 ──────
+  const tickBeforeDrain = snapshots.at(-1).tickId;
+  const drainResponse = await fetch(`http://127.0.0.1:${GAME_PORT}/ops/drain`, {
+    method: 'POST', headers: { 'x-admin-secret': ADMIN_SECRET },
+  });
+  if (drainResponse.status !== 202) throw new Error(`drain request failed (${drainResponse.status})`);
+  await waitFor(() => events.some((event) => event?.type === 'notice'), 'drain maintenance notice');
+  await waitFor(() => snapshots.some((snapshot) => snapshot.tickId > tickBeforeDrain), 'current game continues after drain');
+
+  const nextGuest = await (await fetch(`${API}/v1/auth/guest`, { method: 'POST' })).json();
+  const nextTicket = await (await fetch(`${API}/v1/matches/tickets`, {
+    method: 'POST', headers: { authorization: `Bearer ${nextGuest.accessToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'classic' }),
+  })).json();
+  const blockedClient = new Client(`ws://127.0.0.1:${GAME_PORT}`);
+  let blocked = false;
+  try { await blockedClient.joinById(room.roomId, { joinToken: nextTicket.joinToken }); } catch { blocked = true; }
+  if (!blocked) throw new Error('draining room accepted a new join');
+  console.log('[smoke] drain ok: notice delivered, current snapshots advance, same Room blocks new join');
 
   // ── 가장 가까운 경계로 돌진 → 사망 → result ───────────────────────────
   const self = welcome.players.find((p) => p.id === room.sessionId);
@@ -132,7 +155,7 @@ try {
   console.log(`[smoke] stats: games=${stats.games} bestScore=${stats.bestScore}`);
 
   await room.leave();
-  shutdown(0, '[smoke] PASS: guest → ticket → token join → play → death → result persisted');
+  shutdown(0, '[smoke] PASS: guest → ticket → token join → drain rehearsal → play → death → result persisted');
 } catch (err) {
   shutdown(1, `[smoke] FAIL: ${err?.message ?? err}`);
 }

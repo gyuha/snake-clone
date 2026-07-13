@@ -1,0 +1,11 @@
+{
+  "version": "2026-07-14.1",
+  "assets": [
+    {
+      "path": "/icons/serpent.svg",
+      "type": "image/svg+xml",
+      "bytes": 363,
+      "sha256": "89c02629dc86d56b6b23ee5b315b116cd1a4352cb0f9640d6393e6c4df67b163"
+    }
+  ]
+}

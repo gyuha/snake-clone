@@ -8,7 +8,7 @@ describe('protocol', () => {
 });
 
 describe('validateInputMessage (PRD §14.2)', () => {
-  const valid = { seq: 1, dirX: 1, dirY: 0, boost: false };
+  const valid = { seq: 1, clientTime: 1_700_000_000_000, dirX: 1, dirY: 0, boost: false };
 
   it('유효한 입력을 통과시킨다', () => {
     expect(validateInputMessage(valid)).toEqual(valid);
@@ -27,6 +27,11 @@ describe('validateInputMessage (PRD §14.2)', () => {
 
   it('boost가 boolean이 아니면 거부한다', () => {
     expect(validateInputMessage({ ...valid, boost: 1 })).toBeNull();
+  });
+
+  it('clientTime은 유한수여야 하며, 구버전 입력의 누락은 호환 기간에 허용한다', () => {
+    expect(validateInputMessage({ ...valid, clientTime: NaN })).toBeNull();
+    expect(validateInputMessage({ seq: 2, dirX: 0, dirY: 1, boost: false })).toEqual({ seq: 2, dirX: 0, dirY: 1, boost: false });
   });
 
   it('객체가 아닌 페이로드를 거부한다', () => {

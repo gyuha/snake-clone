@@ -18,6 +18,11 @@ export const SKINS: Skin[] = [
   { id: 5, name: '골드', head: 0xe8d377, body: 0xc9ac3e, boost: 0xf5e6a3, css: '#c9ac3e' },
   { id: 6, name: '터쿼이즈', head: 0x72d8ce, body: 0x3fada2, boost: 0x9fe8e0, css: '#3fada2' },
   { id: 7, name: '슬레이트', head: 0xa8b4c0, body: 0x7c8894, boost: 0xc8d2dc, css: '#7c8894' },
+  { id: 8, name: '네뷸라', head: 0xf2a3ff, body: 0x9c66d9, boost: 0xcdb7ff, css: '#9c66d9' },
+  { id: 9, name: '오로라', head: 0x9ff5db, body: 0x46bfa3, boost: 0xd5fff0, css: '#46bfa3' },
+  { id: 10, name: '코스믹', head: 0x81c7ff, body: 0x426fd1, boost: 0xb9e1ff, css: '#426fd1' },
+  { id: 11, name: '솔라', head: 0xffd86d, body: 0xe88634, boost: 0xffefa8, css: '#e88634' },
+  { id: 12, name: '프리즘', head: 0xf4b0ff, body: 0xd05ebc, boost: 0xffd2e9, css: '#d05ebc' },
 ];
 
 export function skinOf(id: number): Skin {

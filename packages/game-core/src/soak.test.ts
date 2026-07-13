@@ -10,13 +10,16 @@ import { Simulation } from './simulation';
  */
 
 const SNAKES = 8;
-const TICKS = 12_000;
+const requestedTicks = Number(process.env.SERPENT_SOAK_TICKS ?? 12_000);
+if (!Number.isInteger(requestedTicks) || requestedTicks < 1) throw new Error('SERPENT_SOAK_TICKS must be a positive integer');
+const TICKS = requestedTicks;
 
 const config = createGameConfig({
   pellets: { targetCount: 500, chunkSync: true, respawnBudgetPerTick: 30, baseValue: 1, radius: 6 },
 });
+const SIMULATION_MINUTES = (TICKS * config.simulation.fixedDeltaMs) / 60_000;
 
-describe('soak — 12,000틱 자동 플레이', () => {
+describe(`soak — ${TICKS.toLocaleString()}틱 (${SIMULATION_MINUTES.toLocaleString()}분 시뮬) 자동 플레이`, () => {
   it('예외/NaN 없이 완주하고 불변식을 유지한다', () => {
     const sim = new Simulation(config, 20260713);
     sim.seedPellets();
