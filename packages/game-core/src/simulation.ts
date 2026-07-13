@@ -121,6 +121,11 @@ export class Simulation {
     return this.spawnPellet(x, y, value);
   }
 
+  /** 충돌 인덱스에 등록된 몸통 세그먼트 수 (진단/soak 불변식용) */
+  bodySegmentCount(id: string): number {
+    return this.bodyIndex.segmentCount(id);
+  }
+
   /** 안전 지점 탐색 후 스폰 (PRD §5.6 — 다른 머리/몸통/경계에서 최소 거리) */
   addSnake(id: string): SnakeState {
     const { arena, snake } = this.config;

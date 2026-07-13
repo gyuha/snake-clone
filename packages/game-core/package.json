@@ -9,7 +9,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:determinism": "vitest run src/determinism.test.ts"
+    "test:determinism": "vitest run src/determinism.test.ts",
+    "test:soak": "vitest run src/soak.test.ts"
   },
   "dependencies": {
     "@serpent/config": "workspace:*"
