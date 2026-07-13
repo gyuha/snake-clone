@@ -1,0 +1,35 @@
+{
+  "name": "@serpent/game-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsup",
+    "test:authority": "vitest run src/rooms/authority.test.ts",
+    "test:aoi": "vitest run src/aoi",
+    "test:bots": "vitest run src/bots",
+    "test:tick-budget": "vitest run src/perf/tick-budget.test.ts",
+    "test:matchmaker": "vitest run src/matchmaker"
+  },
+  "dependencies": {
+    "@colyseus/schema": "3.0.76",
+    "@serpent/config": "workspace:*",
+    "@serpent/game-core": "workspace:*",
+    "@serpent/protocol": "workspace:*",
+    "colyseus": "0.16.5",
+    "@serpent/api": "workspace:*"
+  },
+  "devDependencies": {
+    "@colyseus/testing": "^0.16.3",
+    "@colyseus/tools": "^0.16.20",
+    "colyseus.js": "^0.16.22",
+    "tsup": "^8.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

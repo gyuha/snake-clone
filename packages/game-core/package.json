@@ -1,0 +1,22 @@
+{
+  "name": "@serpent/game-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:determinism": "vitest run src/determinism.test.ts",
+    "test:soak": "vitest run src/soak.test.ts"
+  },
+  "dependencies": {
+    "@serpent/config": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}
