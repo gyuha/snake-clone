@@ -25,6 +25,7 @@ afterAll(async () => {
 // 펠릿 0개(점수/질량 통제), 넉넉한 아레나(경계 사망 배제)
 const cleanConfig = {
   arena: { width: 8000, height: 8000, boundary: 'lethal' as const },
+  room: { maxPlayers: 60, minHumans: 1, maxBots: 0 },
   pellets: { targetCount: 0, chunkSync: true, respawnBudgetPerTick: 0, baseValue: 1, radius: 6 },
 };
 

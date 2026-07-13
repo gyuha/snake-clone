@@ -16,15 +16,26 @@ export interface Collected {
   snapshot: unknown[];
   event: unknown[];
   result: unknown[];
+  pong: unknown[];
+  leaderboard: unknown[];
 }
 
 /** 클라이언트 룸의 모든 프로토콜 메시지를 수집한다 */
 export function collectMessages(room: Room): Collected {
-  const collected: Collected = { welcome: [], snapshot: [], event: [], result: [] };
+  const collected: Collected = {
+    welcome: [],
+    snapshot: [],
+    event: [],
+    result: [],
+    pong: [],
+    leaderboard: [],
+  };
   room.onMessage('welcome', (m) => collected.welcome.push(m));
   room.onMessage('snapshot', (m) => collected.snapshot.push(m));
   room.onMessage('event', (m) => collected.event.push(m));
   room.onMessage('result', (m) => collected.result.push(m));
+  room.onMessage('pong', (m) => collected.pong.push(m));
+  room.onMessage('leaderboard', (m) => collected.leaderboard.push(m));
   return collected;
 }
 

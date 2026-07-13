@@ -10,14 +10,18 @@
     "test": "vitest run",
     "build": "tsup",
     "test:authority": "vitest run src/rooms/authority.test.ts",
-    "test:aoi": "vitest run src/aoi"
+    "test:aoi": "vitest run src/aoi",
+    "test:bots": "vitest run src/bots",
+    "test:tick-budget": "vitest run src/perf/tick-budget.test.ts",
+    "test:matchmaker": "vitest run src/matchmaker"
   },
   "dependencies": {
     "@colyseus/schema": "3.0.76",
     "@serpent/config": "workspace:*",
     "@serpent/game-core": "workspace:*",
     "@serpent/protocol": "workspace:*",
-    "colyseus": "0.16.5"
+    "colyseus": "0.16.5",
+    "@serpent/api": "workspace:*"
   },
   "devDependencies": {
     "@colyseus/testing": "^0.16.3",
