@@ -11,13 +11,21 @@
     "test:determinism": "pnpm --filter @serpent/game-core test:determinism",
     "test:authority": "pnpm --filter @serpent/game-server test:authority",
     "test:aoi": "pnpm --filter @serpent/game-server test:aoi",
-    "smoke": "bash scripts/smoke.sh"
+    "smoke": "bash scripts/smoke.sh",
+    "test:netem": "pnpm --filter @serpent/web test:netem",
+    "test:soak": "pnpm --filter @serpent/game-core test:soak",
+    "test:bots": "pnpm --filter @serpent/game-server test:bots",
+    "test:tick-budget": "pnpm --filter @serpent/game-server test:tick-budget",
+    "test:api": "pnpm --filter @serpent/api test",
+    "test:matchmaker": "pnpm --filter @serpent/game-server test:matchmaker",
+    "test:e2e": "node scripts/e2e.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",
     "colyseus.js": "^0.16.22",
     "eslint": "^9.30.0",
     "globals": "^16.0.0",
+    "playwright": "^1.61.1",
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.35.0"
   },
