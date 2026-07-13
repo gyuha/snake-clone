@@ -15,6 +15,8 @@ function player(id: string, x = 0, y = 0): PlayerSnapshot {
     mass: 10,
     score: 0,
     boosting: false,
+    name: 'p',
+    skinId: 0,
     path: [{ x: x - 10, y }],
   };
 }

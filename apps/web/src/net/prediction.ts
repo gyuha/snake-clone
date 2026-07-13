@@ -24,7 +24,10 @@ export interface PendingInput {
  */
 export class Predictor {
   state: MovementState | null = null;
-  private pending: PendingInput[] = [];
+  /** 입력 이력 — 각 입력이 적용된 로컬 틱 번호와 함께 보관 */
+  private history: { input: PendingInput; localTick: number }[] = [];
+  /** 클라이언트 예측 틱 카운터 — welcome.tickId에서 시작, 입력 1개 = 1틱 */
+  private localTick = 0;
   private renderOffset: Vec2 = { x: 0, y: 0 };
 
   constructor(
@@ -33,15 +36,18 @@ export class Predictor {
     private readonly smoothingHalfLifeMs = 120,
   ) {}
 
-  reset(server: PlayerSnapshot): void {
+  reset(server: PlayerSnapshot, serverTickId = 0): void {
     this.state = toMovementState(server);
-    this.pending = [];
+    this.history = [];
+    this.localTick = serverTickId;
     this.renderOffset = { x: 0, y: 0 };
   }
 
-  /** 입력 1개 = 로컬 1틱 즉시 적용 + 보류 큐 적재 */
+  /** 입력 1개 = 로컬 1틱 즉시 적용 + 이력 적재 */
   applyInput(input: PendingInput): void {
-    this.pending.push(input);
+    this.localTick++;
+    this.history.push({ input, localTick: this.localTick });
+    if (this.history.length > 256) this.history.shift();
     if (!this.state) return;
     stepSnakeMovement(
       this.state,
@@ -51,18 +57,31 @@ export class Predictor {
     );
   }
 
-  /** 서버 권위 상태 수신 → 미확인 입력 재적용 */
-  reconcile(server: PlayerSnapshot, lastAckInputSeq: number): void {
+  /**
+   * 서버 권위 상태 수신 → 틱 정렬 재적용 (reconciliation).
+   * 서버는 벽시계 틱마다 항상 전진하므로, "보류 입력 개수"가 아니라
+   * 스냅샷의 serverTickId와 로컬 틱 카운터의 차이만큼 재적용해야
+   * 틱 수가 항상 일치한다 (지터/손실은 방향 오차만 남긴다).
+   */
+  reconcile(server: PlayerSnapshot, serverTickId: number): void {
     const prevRender = this.state
       ? { x: this.state.head.x + this.renderOffset.x, y: this.state.head.y + this.renderOffset.y }
       : null;
 
-    this.pending = this.pending.filter((p) => p.seq > lastAckInputSeq);
+    // 서버 틱에 이미 반영된(그 이전의) 입력 이력 폐기
+    this.history = this.history.filter((h) => h.localTick > serverTickId);
+
+    // 틱 드리프트 방어: 이력과 틱 차이가 크게 어긋나면 재정렬
+    const needed = this.localTick - serverTickId;
+    if (needed < 0 || needed - this.history.length > 8) {
+      this.localTick = serverTickId + this.history.length;
+    }
+
     this.state = toMovementState(server);
-    for (const p of this.pending) {
+    for (const h of this.history) {
       stepSnakeMovement(
         this.state,
-        { dir: normalizeDirection({ x: p.dirX, y: p.dirY }), boost: p.boost },
+        { dir: normalizeDirection({ x: h.input.dirX, y: h.input.dirY }), boost: h.input.boost },
         this.config,
         true,
       );
@@ -98,7 +117,7 @@ export class Predictor {
   }
 
   pendingCount(): number {
-    return this.pending.length;
+    return this.history.length;
   }
 }
 

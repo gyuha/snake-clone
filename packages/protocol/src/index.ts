@@ -19,6 +19,10 @@ export const MSG = {
   event: 'event',
   respawn: 'respawn',
   result: 'result',
+  ping: 'ping',
+  pong: 'pong',
+  resync: 'resync',
+  leaderboard: 'leaderboard',
 } as const;
 
 export type MessageName = (typeof MSG)[keyof typeof MSG];
@@ -55,9 +59,28 @@ export function validateInputMessage(raw: unknown): InputMessage | null {
   return { seq, dirX, dirY, boost };
 }
 
+/** RTT/offset 추정용 핑 (PRD §9.5 Clock sync, 1~2Hz) */
+export interface PingMessage {
+  nonce: number;
+  clientTime: number;
+}
+
+/** baseline 불일치/유실 시 재동기화 요청 (PRD §11.4 resync) */
+export interface ResyncMessage {
+  lastGoodTickId: number;
+  reason: string;
+}
+
 // ---------------------------------------------------------------------------
 // S → C
 // ---------------------------------------------------------------------------
+
+/** 핑 응답 — 클라이언트 에코 + 서버 시각 */
+export interface PongMessage {
+  nonce: number;
+  clientTime: number;
+  serverTime: number;
+}
 
 export interface PlayerSnapshot {
   id: string;
@@ -68,6 +91,10 @@ export interface PlayerSnapshot {
   mass: number;
   score: number;
   boosting: boolean;
+  /** 표시 이름 (로비 닉네임 — 서버가 길이 제한 후 반사) */
+  name: string;
+  /** 코스메틱 스킨 (FR-COS-01 — 모든 클라이언트에 표시) */
+  skinId: number;
   /** 몸통 복원용 경로 키포인트 (M2 전체 전송 — M4에서 델타화) */
   path: { x: number; y: number }[];
 }
@@ -149,6 +176,13 @@ export type EventMessage =
       killerId?: string;
     }
   | { type: 'spawn'; tickId: number; snakeId: string; x: number; y: number };
+
+/** 방 내 리더보드 — 4Hz 이하 (PRD §5.2 Leaderboard, FR-RANK-01) */
+export interface LeaderboardMessage {
+  entries: { id: string; name: string; score: number }[];
+  selfRank: number;
+  totalPlayers: number;
+}
 
 /** 사망 후 결과 (PRD §11.4 result) */
 export interface ResultMessage {

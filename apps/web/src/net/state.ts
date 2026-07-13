@@ -18,6 +18,8 @@ export interface ClientSnake {
   mass: number;
   score: number;
   boosting: boolean;
+  name: string;
+  skinId: number;
   path: { x: number; y: number }[];
 }
 
@@ -43,6 +45,8 @@ function toClientSnake(p: PlayerSnapshot): ClientSnake {
     mass: p.mass,
     score: p.score,
     boosting: p.boosting,
+    name: p.name,
+    skinId: p.skinId,
     path: p.path.map((n) => ({ x: n.x, y: n.y })),
   };
 }

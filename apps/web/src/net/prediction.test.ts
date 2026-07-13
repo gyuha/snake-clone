@@ -16,6 +16,8 @@ function spawnSnapshot(): PlayerSnapshot {
     mass: 50,
     score: 0,
     boosting: false,
+    name: 'p',
+    skinId: 0,
     path: [{ x: 999, y: 1000 }],
   };
 }
@@ -59,6 +61,8 @@ function toSnapshot(s: MovementState): PlayerSnapshot {
     mass: s.mass,
     score: 0,
     boosting: s.boosting,
+    name: 'p',
+    skinId: 0,
     path: s.path.map((p) => ({ ...p })),
   };
 }
