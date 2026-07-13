@@ -7,7 +7,8 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "vite build"
+    "build": "vite build",
+    "test:netem": "vitest run src/net/netem.test.ts src/net/clock.test.ts"
   },
   "dependencies": {
     "@serpent/config": "workspace:*",
@@ -16,7 +17,8 @@
     "colyseus.js": "^0.16.22",
     "phaser": "^3.87.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "@serpent/api": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

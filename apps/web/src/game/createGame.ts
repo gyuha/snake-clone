@@ -1,10 +1,8 @@
 import Phaser from 'phaser';
 import { ArenaScene } from './ArenaScene';
-import { OnlineScene } from './OnlineScene';
 
-/** `?mode=online[&server=ws://...]` 이면 온라인 모드, 아니면 오프라인 (M2) */
+/** 오프라인 아레나 (M1 코어 — `?mode=offline` 개발/데모용) */
 export function createGame(parent: HTMLElement): Phaser.Game {
-  const mode = new URLSearchParams(window.location.search).get('mode');
   return new Phaser.Game({
     type: Phaser.AUTO,
     parent,
@@ -13,6 +11,6 @@ export function createGame(parent: HTMLElement): Phaser.Game {
       mode: Phaser.Scale.RESIZE,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
-    scene: mode === 'online' ? [OnlineScene] : [ArenaScene],
+    scene: [ArenaScene],
   });
 }
