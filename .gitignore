@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+
+# forge volatile state (docs whitelisted)
+.forge/*
+!.forge/adr/
+!.forge/retro/
+!.forge/codebase/
+!.forge/CONTEXT.md
+!.forge/config.json
+!.forge/branch/
