@@ -226,12 +226,18 @@ export class OnlineScene extends Phaser.Scene {
 
     const stepMs = this.config.simulation.fixedDeltaMs;
     this.inputAccumulatorMs += Math.min(deltaMs, 250);
+    // 틱 드리프트 페이스 보정: 로컬 틱이 서버보다 뒤지면(≤0) 약간 서두르고,
+    // 너무 앞서면(>4) 약간 늦춰 재앵커 스냅(러버밴딩)을 예방한다.
+    if (this.predictor.lastDriftTicks <= 0) this.inputAccumulatorMs += deltaMs * 0.1;
+    else if (this.predictor.lastDriftTicks > 4) this.inputAccumulatorMs -= deltaMs * 0.1;
     while (this.inputAccumulatorMs >= stepMs) {
       this.inputAccumulatorMs -= stepMs;
       if (this.meAlive && this.predictor.state) this.inputTick();
     }
 
-    const renderHead = this.predictor.renderHead(deltaMs);
+    // 서브틱 보간: 다음 입력 틱까지의 진행률로 prevHead→head를 보간 (머리 튐 방지)
+    const alpha = this.inputAccumulatorMs / stepMs;
+    const renderHead = this.predictor.renderHead(deltaMs, alpha);
     if (renderHead && this.meAlive) {
       const cam = this.cameras.main;
       const target = cam.getScroll(renderHead.x, renderHead.y);

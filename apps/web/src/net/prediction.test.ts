@@ -67,6 +67,37 @@ function toSnapshot(s: MovementState): PlayerSnapshot {
   };
 }
 
+describe('Predictor — 서브틱 렌더 보간 (머리 튐 방지)', () => {
+  it('입력 틱 사이 렌더 위치가 prevHead→head를 알파로 보간한다', () => {
+    const predictor = new Predictor(config);
+    predictor.reset(spawnSnapshot());
+    // angle 0, dir (1,0) → 한 틱에 +9u 직진
+    predictor.applyInput({ seq: 1, dirX: 1, dirY: 0, boost: false });
+
+    const p0 = predictor.renderHead(0, 0)!; // 틱 시작 직후 프레임
+    const p5 = predictor.renderHead(0, 0.5)!; // 틱 중간 프레임
+    const p1 = predictor.renderHead(0, 1)!; // 틱 종료 직전 프레임
+
+    const dt = config.simulation.fixedDeltaMs / 1000;
+    expect(p1.x - p0.x).toBeCloseTo(config.snake.baseSpeed * dt, 6); // 9u 전진
+    expect(p5.x).toBeCloseTo((p0.x + p1.x) / 2, 6); // 중간값 — 정지·점프 없음
+    expect(p0.x).toBeCloseTo(1000, 6); // prevHead = 틱 이전 위치
+  });
+
+  it('reconcile 직후에도 보간 기준이 이어져 렌더 위치가 점프하지 않는다', () => {
+    const predictor = new Predictor(config);
+    predictor.reset(spawnSnapshot());
+    const inputs = makeInputs(6);
+    for (const i of inputs) predictor.applyInput(i);
+    const before = predictor.renderHead(0, 0.5)!;
+
+    const server = serverStateAfter(inputs.slice(0, 3));
+    predictor.reconcile(toSnapshot(server), 3);
+    const after = predictor.renderHead(0, 0.5)!;
+    expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeLessThan(1);
+  });
+});
+
 describe('Predictor — reconciliation (PRD §9.5)', () => {
   it('ack 이후 미확인 입력을 재적용하면 서버와 동일한 전체 시퀀스 결과가 된다', () => {
     const predictor = new Predictor(config);

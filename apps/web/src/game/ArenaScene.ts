@@ -25,6 +25,8 @@ export class ArenaScene extends Phaser.Scene {
   private hudText!: Phaser.GameObjects.Text;
   private hudTimerMs = 0;
   private deathOverlay?: Phaser.GameObjects.Container;
+  /** 직전 틱의 플레이어 머리 — 서브틱 렌더 보간 기준 */
+  private prevPlayerHead: Vec2 | null = null;
 
   private keys!: {
     w: Phaser.Input.Keyboard.Key;
@@ -51,6 +53,7 @@ export class ArenaScene extends Phaser.Scene {
     this.accumulatorMs = 0;
     this.lastDevice = 'pointer';
     this.deathOverlay = undefined;
+    this.prevPlayerHead = null;
 
     const kb = this.input.keyboard!;
     this.keys = {
@@ -87,6 +90,7 @@ export class ArenaScene extends Phaser.Scene {
     while (this.accumulatorMs >= stepMs) {
       this.accumulatorMs -= stepMs;
       if (player.alive) {
+        this.prevPlayerHead = { ...player.head };
         this.applyInput(player.head);
         const events = this.sim.step();
         if (events.deaths.some((d) => d.snakeId === PLAYER_ID)) {
@@ -95,8 +99,17 @@ export class ArenaScene extends Phaser.Scene {
       }
     }
 
-    this.followCamera(player.head);
-    this.render();
+    // 서브틱 보간: 틱 사이 프레임에서 머리가 정지→점프하지 않도록
+    // 직전 틱 위치와 현재 위치를 누적기 진행률로 보간해 렌더한다.
+    const alpha = Math.max(0, Math.min(1, this.accumulatorMs / stepMs));
+    const prev = this.prevPlayerHead ?? player.head;
+    const renderHead: Vec2 = {
+      x: prev.x + (player.head.x - prev.x) * alpha,
+      y: prev.y + (player.head.y - prev.y) * alpha,
+    };
+
+    this.followCamera(renderHead);
+    this.render(renderHead);
 
     // HUD는 4Hz 이하 갱신 (PRD §7.2)
     this.hudTimerMs += deltaMs;
@@ -148,7 +161,7 @@ export class ArenaScene extends Phaser.Scene {
     );
   }
 
-  private render() {
+  private render(playerRenderHead?: Vec2) {
     const g = this.worldGfx;
     const cam = this.cameras.main;
     const view = cam.worldView;
@@ -169,16 +182,17 @@ export class ArenaScene extends Phaser.Scene {
       g.fillCircle(p.x, p.y, this.config.pellets.radius);
     }
 
-    // 스네이크 렌더
+    // 스네이크 렌더 (플레이어는 서브틱 보간 머리 기준)
     for (const s of this.sim.snakes.values()) {
       if (!s.alive) continue;
+      const isPlayer = s.id === PLAYER_ID;
+      const head = isPlayer && playerRenderHead ? playerRenderHead : s.head;
       const points = sampleBodyPoints(
-        s.head,
+        head,
         s.path,
         bodyLengthForMass(this.config, s.mass),
         this.config.snake.segmentSpacing,
       );
-      const isPlayer = s.id === PLAYER_ID;
       g.fillStyle(isPlayer ? 0x4ea56f : 0x5a7fd6, 1);
       for (let i = points.length - 1; i >= 0; i--) {
         const p = points[i]!;
@@ -186,7 +200,7 @@ export class ArenaScene extends Phaser.Scene {
       }
       // 머리 (부스트 시 강조)
       g.fillStyle(s.boosting ? 0x9be27f : isPlayer ? 0x6fd79a : 0x7fa2e8, 1);
-      g.fillCircle(s.head.x, s.head.y, this.config.snake.headRadius);
+      g.fillCircle(head.x, head.y, this.config.snake.headRadius);
     }
   }
 
